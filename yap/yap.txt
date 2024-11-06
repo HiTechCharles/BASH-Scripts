@@ -1,0 +1,86 @@
+Yahtzee Automation Program  (YAP) by Charles Martin  <HiTechCharles@gmail.com>
+Project web site:  http://bashyap.sourceforge.net
+
+
+What is yap?  
+============ 
+YAP is a program that will keep track of scores
+for the game Yahtzee.  YAP saves you time by adding scores, always knowing
+whose turn it is, showing the leader of the pack at the touch of a button,
+and it runs on anything bash will run on.
+
+YAP is easy to follow.   On each player's turn, just choose a category and
+input how many points.  The YAP will figure out the scores, which scoring
+categories are available, and how many turns each player has taken.
+
+
+Why does it not roll dice?  
+========================== 
+This program was made for situations where you've got a bunch of guys and
+gals in one room.  While you play the game, you can talk plenty, drink 
+plenty, and enjoy each other's company.  Why use a computer?  One is 
+usually nearby, it's always a fair game since accurate scores and player
+turn are kept.  Also the current game is saved to disk after each turn
+for recovery after a computer crash or when you want to finish the game
+later.
+
+
+How to Run it 
+============= 
+After downloading the gzip archive containing the program, go into a 
+terminal and change to the directory containing the download like this:
+	cd ~/Downloads
+
+Next, extract the archive with
+	tar -xvf yap-1.0.tar.gz
+
+After extraction, you will see a new directory called yap.  Get into this
+directory with
+	cd yap
+
+Finally, run the program by issuing the command with all names of players
+with spaces between the command and each name.
+	./yap Charles Tiffany Jackie
+
+The game is now running!
+
+
+How to use it 
+============= 
+Once YAP starts, the program will introduce itself, and show the order for 
+the players.  Just press a key here to continue.  If names were not supplied
+on the command line, YAP will get the player names first.
+
+On each player's turn, the screen and options stay the same.  Only the scoring
+categories will dissappear as they are used.  At the top, the current player's
+name, score, and turns remaining is displayed.	Following this, a list of
+keys and remaining categories appear.  At the end, a few options are given.
+
+To score, just press the letter or number next to the category that the
+player wants to use.  You will be prompted for the number of points gained.
+Zero is allowed as well.  Type the number of points and hit ENTER.  To pick a
+different category to score, just press ENTER with no input to allow choosing
+a different scoring area.
+
+For Full house, the straights, and yahtzee, you either score the full amount
+of points or zero.  For these, press F to score full points, z for zero,
+or C to cancel the category selection and try again.
+
+After scoring, the value for the category chosen, as well as total points
+are printed.  Press any key to go to the next player's turn.
+
+At the start of any player's turn, you can press A to see all scores, P to
+see your score card, or Q to exit the program.	When exiting, your game is
+saved for next time.
+
+
+End of the game =============== When all participants have filled in all of
+their categories, the game ends.  The final scores are given, and the winner
+is announced.  Total wins for each player are kept to show who has won the
+most games.
+
+Files ===== 
+All YAP files are stored in your home directory under .yap.
+The recovery directory contains data used to recover the current game in
+progress.  The winners file keeps track of how many wins for each player
+that has won.

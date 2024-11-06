@@ -1,0 +1,343 @@
+# bcsend - send equations to a program which can handle more than integer math
+# boundscheck - check if month day and year elements of a date are in proper ranges
+# createdir - read from a list of directories, creating those that don't exist
+# datechk - see if today is among a list of days
+# Finddates - Make a list of dates in a range
+# getdates - get start and end dates for a report
+# getkey - get a single keypress, optionally limiting to certain keys
+# monthname - print the month name by giving the month number
+# numdays - returns how many days in a month
+# pause - wait for a keypress, optionally showing a message while waiting
+# picknumber - pick random number
+# pidchk - see if a particular program is running
+# showdatetime - capture current long date & 12-hour time 
+# timechk - see if current time is within a given range
+# Validate - Make sure an entered date is valid
+# wordchoice - print singular or plural form of word based on a number
+# yesno - get answer to yes/no question.  
+
+
+bcsend () {  # send a problem to an external math program common on all *nix systems
+	# Acceptable inputs:  one string containing a math expression
+	# Returns:  Answer to equation will be written to standard out.
+	# Example:  ANSW=`bcsend "26.50 * 4"`
+	# Sample output: 106 
+	
+	echo "$*" | bc
+}
+
+boundscheck () {  # steps forward one day, making sure there are no illegal month or day results
+	# Acceptable inputs:  none
+	# Returns:  nothing
+	  case $1 in  # either add day to current date or end date
+	  	"c"  )
+	 	  let "CD += 1"   # add 1 day to current date
+	  	  if [ $CD -gt `numdays $CM $CY` ]; then   # if day is out of range for current month, go to next month
+	  		CD=1 ;let "CM += 1"  # current day goes back to 1, increment month number
+	  	  fi
+		  if [ $CM -gt 12 ]; then   # if month is more than 12,  
+	 		CD=1 ; CM=1; let "CY += 1"  # go to first day in january, increment year
+	 	  fi ;;
+		"e"   )
+	 	  let "ED += 1"   # add 1 day  to end date to makesearching easier
+	  	  if [ $ED -gt `numdays $EM $EY` ]; then   #if day out of range for current month,
+	  		ED=1 ; let "EM += 1" # day goes back to 1, increment month
+	  	  fi
+		  if [ $EM -gt 12 ]; then  # if month past 12, 
+	 		ED=1 ; EM=1; let "EY += 1"  #month and day goto 1, add 1 to year
+	 	  fi ;;
+	 esac
+}
+
+createdir () {  # read from a list of directories, creating those that don't exist
+	# Acceptable inputs:  one or more quoted directories you wish created
+	# Returns:  nothing
+	# Example:  createdir "/program" "/program/data"
+	# for each directory listed, create it if it does not exist.
+	
+	for DIRNAME in $* ; do
+		if [ ! -d $DIRNAME ]; then
+			mkdir $DIRNAME  >/dev/null 2>/dev/null
+		fi
+	done
+}
+
+datechk () {  # see if today is among a list of days
+	# Acceptable inputs: one string containing day abbreviations, separated by spaces
+	# Returns:  0 if false, 1 if today is one of the listed days
+	# example:  datechk " Mon Tue Wed Thu Fri"
+	# Sample output:  1
+	
+	TODAY=`date +"%a"`  #get abbreviation for current day
+
+	# for each day specifide, see if it matches today's day of the week.
+	for DAY in $1; do
+		# if today is among the list, the date check passes.
+		if [ $TODAY = $DAY ]; then
+		return 1
+		fi
+	done
+	return 0
+}
+
+finddates () {  # make a list of dates in the given range
+	CM=$SM ; CD=$SD ; CY=$SY # current month day year match start date
+	boundscheck "e"  # add 1 day to end date for easier searching
+	rm $TMP/datelist >/dev/null 2>&1  # temp file containing list of dates
+
+	until [ $CM -eq $EM ] &&  # when current date values match end values,
+	[ $CD -eq $ED ] &&  # search is done
+	[ $CY -eq $EY ]; do
+		  echo "$CM/$CD/$CY" >> $TMP/datelist   # write whole date to file
+          boundscheck "c"  # add 1 day to current day, making sure elements stay in proper ranges
+	done
+	showreport 1  #generate report when done
+}
+
+getdates () {  # get start and end dates for a report
+	echo
+	echo "Enter the start and end dates in the form M/D/YYYY"
+
+	until [ ! -z $SM ]; do  # until start date set, loop the input
+		echo
+		echo -n "Start:  "
+		read START
+		if [ -z "$START" ]; then
+			echo
+			echo "You must enter a valid date."
+			exit 1
+		else
+			validate $START  # make sure date is valid.   errors will print
+			if [ $? -eq 0 ]; then  # if validation successful, set start date values from validation routine   VM VD VY
+				SM=$VM ; SD=$VD ; SY=$VY
+			fi
+		fi
+	done
+
+	until [ ! -z $EM ]; do  # same loop for end date
+		echo
+		echo -n "  End:  "
+		read END
+		if [ -z $END ]; then
+			echo
+			echo "You must enter the ending date of the report."
+		else
+			validate $END
+			if [ $? -eq 0 ]; then
+				EM=$VM ; ED=$VD ; EY=$VY  # set end  date elements from validation
+			fi
+		fi
+	done
+
+	echo "Generating report from $START to $END, please stand by."  # print date range before searching
+	finddates  #find dates within the range
+}
+
+getkey () {  # get single keypress, allowing only certain keys if desired
+	# acceptable inputs: 0 or more space-separated keys that are allowed.  Leave blank to take any key
+	#					 When letters are used, both uppercase and lowercase will automatically be accepted.
+	# Returns:  $REPLY will contain the lowercase value of the key hit.  
+	# Example:  getkey 1 2 3 Q
+	# Sample variable contents:  q
+	
+	read -sn1  # get one key and store it
+	REPLY=`echo $REPLY | tr A-Z a-z`  # turn any uppercase input into lowercase
+	ALLOWED=`echo "$*" | tr A-Z a-z`  # turns allowed letters into all lowercase
+	
+	if [ -z $1 ]; then  # if no specific keys being asked for, take any input and quit function
+		return
+	fi
+	
+	for LTR in $ALLOWED; do  # for each char in allowed list, see if it matches input.
+		if [ "$LTR" = "$REPLY" ]; then  # if it does, key is good, exit function
+			return
+		fi
+	done
+	
+	# if loop runs through all characters without finding a match, this means input wasn't one of the required keys
+	# show error message and rerun function automatically.
+	echo
+	echo "Invalid key:  $REPLY  Allowed keys are:  $ALLOWED"
+	getkey $ALLOWED
+}
+
+monthname () {   # get month name using its number
+	# Acceptable inputs:  a number between 1 and 12
+	# Returns:  Name of month will print to standard out
+	# Example:  monthname 12
+	# Sample output:  December
+		
+	case $1 in  #look up month number and print appropriate month  name
+		1  )  echo "January" ;;
+		2  )  echo "February" ;;
+		3  )  echo "March" ;;
+		4  )  echo "April" ;;
+		5  )  echo "May" ;;
+		6  )  echo "June" ;;
+		7  )  echo "July"  ;;
+		8  )  echo "August" ;;
+		9  )  echo "September"  ;;
+		10 )  echo "October" ;;
+		11 )  echo "November" ;;
+		12 )  echo "December" ;;
+	esac
+}
+
+numdays () {  # get number of days in a given month
+	# Acceptable inputs:  2 numbers for the month and 4-digit year you want to check
+	# Returns:  Number of days in choses month and year will goto standard out
+	# Example:  numdays 9 2009
+	# Sample output:  30
+	
+	case "$1" in
+		1   )   echo 31 ;;
+		2   )   if [ `expr $2 % 4` -eq 0 ]; then   # if year is completely divisible by 4,  
+			echo 29 # leap year
+		else
+			echo 28   # otherwise 28 days
+		fi ;;
+		3   )   echo 31 ;;
+		4   )   echo 30 ;;
+		5   )   echo 31 ;;
+		6   )   echo 30 ;;
+		7   )   echo 31 ;;
+		8   )   echo 31 ;;
+		9   )   echo 30 ;;
+	   10   )   echo 31 ;;
+	   11   )   echo 30 ;;
+	   12   )   echo 31 ;;
+	esac
+}
+
+pause () {  # pause to allow screen to be read before clearing.
+	# acceptable inputs:  Any string to show while waiting for keypress
+	# Returns:  nothing
+	# Example:  pause "Press a key for Tiffany's turn."
+		
+	echo "$*" # print message passed to function, such as press any key...
+	read -sn1  # take any 1 keypress.  actual key doesn't matter
+}
+
+picknumber () {  # pick random number from a given range
+	# Acceptable inputs:  two whole numbers for the range to pick from
+	# Returns:  number picked will be written to standard out.
+	# Example:  picknumber 1 10
+	# Sample output:  6
+	
+	LO=$1 ; let "HI = $2 + 1"  # set up internal variables
+		
+	REPLY=0  # need to start with clean variable, otherwise, loop will not execute
+	while [ "$REPLY" -lt $LO ]; do
+		REPLY=$RANDOM
+		let "REPLY %= $HI"
+	done
+	echo $REPLY
+}
+
+pidchk () {  # see if a given program is running
+	# acceptable inputs:  name of one program you wish to check
+	# Returns:  0 if program not running, 1 if program is running
+	# Example:  pidchk "bash"
+	
+	PID=`ps -C $1 -o pid=`  # store pid o store pid of specific program if it is running
+
+	if [ -z $PID ]; then  # if above pid  not set, check passes.
+		 return 1
+	fi
+	return 0
+}
+
+showdatetime () {  # capture current long date & time 
+	# Acceptable inputs:  none
+	# Returns:  $REPLY will contain the current date/time string
+	# Example:  showdatetime
+	# Sample variable contents:  Friday, December 14, 1979
+	REPLY=`date +"%A, %B %-d %Y  %-l:%M %p"`
+}
+
+timechk () { # see if current time is within a given range of hours
+	# this function uses a 24-hour clock.  for 5pm, use 17.
+	# To convert a standard time to 24-hour time:
+	# If hour is 12 or higher, add 12 hours.  Midnight is 0, not 12.
+	# Example:  4:30 PM 
+	# 			hour more than 12 so add 12 to 4, which is 16.
+	
+	# Acceptable inputs:  two numbers from 0 to 23
+	# Returns:  0 if time not in range, 1 if so
+	# Example:  timechk 9 17
+
+	CURHOUR=`date +"%H"`  #get current hour
+	#  if current hour is within range, check passes.
+	if [ $CURHOUR -ge $1 ] && [ $CURHOUR -le $2 ]; then
+		return 1
+	fi
+	return 0
+}
+
+validate () {  # make sure entered dates are valid
+	# Acceptable inputs:  String containing month, day and year, either seperated by dashes or slashes
+	# Returns:  If a valid date, VM will contain month, VD will contain day, and VY will hold 4-digit year
+	# Example:  validate "05/31/2015"
+	# Sample variable contents:  VM=5 VD=31  VY=2015
+	# Notes:  leading zeros are removed from month and day values if they exist
+	DS=`echo "$1" | tr - /`  # turn dashes - into slashes for uniformity
+	VM=`echo "$DS" | cut -f1 -d/`  # take value before first / as month
+	VD=`echo "$DS" | cut -f2 -d/`  # take value before second / as day
+	VY=`echo "$DS" | cut -f3 -d/`   # take value after third / as 4 digit year
+
+	# if month contains a leading zero, remove it
+	if [ `echo $VM | colrm 2 2` -eq 0 ]; then
+		VM=`echo $VM | colrm 1 1`
+	fi
+	if [ $VM -lt 1 ] || [ $VM -gt 12 ]; then  #  month must be between 1 and 12
+		echo
+		echo "Month should be between 1 and 12."  # print error message
+		return 1
+	fi
+
+	if [ `echo $VD | colrm 2 2` -eq 0 ]; then  # remove day leading zero if present
+		VD=`echo $VD | colrm 1 1`
+	fi
+	if [ $VD -lt 1 ] || [ $VD -gt `numdays $VM $VY` ]; then  # must be between 1 and number of days in selected month 
+		echo
+		echo "Day should be between 1 and `numdays $VM $VY`."
+		echo "`monthname $VM` has `numdays $VM $VY` days in it."   # print month name and number of days in it
+		return 1
+	fi
+
+	if [ $VY -gt 0 ] && [ $VY -lt 100 ]; then  #if two digits entered, assume 20XX  example:  35 = 2035
+		let "VY += 2000" >/dev/null 2>&1  # add 2000 to input to make four digit year 
+	elif [ $VY -lt 1753 ] ; then   # year must be 1753 or larger
+		echo
+		echo "Year must be at least 1753."
+		return 1
+	fi
+}
+
+wordchoice () {  	# Print the singular or plural form of a word based on a number
+	# Acceptable inputs:  number to check, singular form of word, plural form of word
+	# Returns:   The correct form of the word is written to standard out
+	# examples:  wordchoice 21 "point" "points"
+	#Sample output:  Points
+	
+	if [ $1 -eq 1 ]; then
+		REPLY=$2   # singular
+	else
+		REPLY=$3  # plural
+	fi
+}
+
+yesno () { #* get the answer to a yes/no question
+	# Acceptable inputs:  Any string to show as part of y/n prompt
+	# Returns:  $REPLY will contain either lowercase Y or N.
+	# Example:  yesno "Would you like a beer?"
+	# Sample output:  Would you like a beer?  (Y or N)
+
+	echo -n "$*  (Y or N)  "  # print custom message with y/n prompt
+	read -sn1  # get one key
+	case $REPLY in    # if y hit, store Y.  otherwise, store N.
+		"y"|"Y"|" "   )    REPLY="y"  ;;
+		*             )    REPLY="n"  ;;
+	esac
+	echo $REPLY
+}

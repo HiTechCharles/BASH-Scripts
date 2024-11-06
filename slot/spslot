@@ -1,0 +1,201 @@
+#!/bin/bash
+. /multimedia/code/sh/bff  # extra functions
+BASEDIR="`dirname $0`"
+SAVEFILE=~/.spslot  #file that holds current game state for later
+SOUNDDIR="$BASEDIR/sounds"   #directory where sounds are stored
+THEMEDIR="$BASEDIR/themes"  #slot machine themes
+
+WINAMT=( 0 10 20 30 40 50 60 1000 10000 )  # win amounts for each symbol category
+
+bet () {  #ask for the player's bet
+	let "REM = $PLAYS % 25"  #see if number of plays divisible by 25
+	if [ $REM -eq 0 ]; then  #if so, display cash and plays
+		echo
+		echo "Cash:  $CASH, Plays:  $PLAYS.  Bet:"
+	fi
+
+	getkey 1 2 3 4 5 6 7 8 9 0 a m q ?  #get a key
+	case $REPLY in   #do actions based on the key hit
+		1|2|3|4|5|6|7|8|9  )  BET=$REPLY ;;
+		0                  )  BET=10  ;;
+		"a"|"A"            )  BET=$CASH ; getslotvalues ;;
+		"q"                )  exit ;;
+		"?"                )  echo ; echo "Cash:  $CASH, Plays:  $PLAYS.  Bet:" ; bet ;;  #show stats on demand
+		"m"                ) ;;  #maximum bet determined later
+	esac
+
+	if [ $CASH -lt  2 ]; then  #find out the highest bet a player can make.  if less than 2, can only bet 1
+		MAX=1
+	elif [ $CASH -lt 3 ]; then
+		MAX=2
+	elif [ $CASH -lt 4 ]; then
+		MAX=3
+	elif [ $CASH -lt 5 ]; then
+		MAX=4
+	elif [ $CASH -lt 6 ]; then
+		MAX=5
+	elif [ $CASH -lt 7 ]; then
+		MAX=6
+	elif [ $CASH -lt 8 ]; then
+		MAX=7
+	elif [ $CASH -lt 9 ]; then
+		MAX=8
+	elif [ $CASH -lt 10 ]; then
+		MAX=9
+	else
+		MAX=10
+	fi
+
+	if [ $REPLY = "m" ]; then	#set bet to maximum if m was hit
+		BET=$MAX
+	elif [ $BET -gt $MAX ]; then  #if attempted bet is higher than the maximum,
+		echo					  #don't allow it
+		echo "The highest you can bet right now is $MAX."
+		bet		#try again
+	fi
+	getslotvalues		#pick numbers for next play
+}
+
+checkforwin () {  #see how much a player wins if at all
+	if [ ${S[1]} -eq 0 ] || [ ${S[2]} -eq 0 ] || [ ${S[3]} -eq 0 ]; then #if any slot nothing
+		CHANGE=$BET      # bet lost
+		let "CASH -= $CHANGE"  #deduct cash
+		echo "Lost $CHANGE"  #print result
+	elif [ ${S[2]} -eq ${S[1]} ] && [ ${S[3]} -eq ${S[1]} ]; then  # if all wheels equal,
+		let "CHANGE = $BET * ${WINAMT[${S[1]}]}"  #amount won from array 
+		let "CASH += $CHANGE"
+		echo "Won $CHANGE"
+		W=`picknumber 1 7`   #pick a win comment, 7 wav files to choose from
+		playsound $SOUNDDIR/win/$W.wav
+		case ${S[1]} in  #based on wheel value, play money or jackpot sounds
+			0|1|2  )  playsound $SOUNDDIR/slot/pay1.wav ;;
+			3|4|5  )  playsound $SOUNDDIR/slot/pay2.wav ;;
+			6|7    )  playsound $SOUNDDIR/slot/pay2.wav $SOUNDDIR/slot/pay3.wav ;;
+			8      )  playsound $SOUNDDIR/slot/jackpot.wav ;;
+		esac
+	else  # no matching wheels or lemons, lose
+		let CHANGE=$BET  #
+		let "CASH -= $CHANGE"
+		echo "Lost $CHANGE"
+	fi
+
+	if [ $CASH -lt 1 ]; then  #if cash less than 1 (minimum bet), game over
+		lostitall	#show final stats
+	else
+		let "PLAYS ++" ; save   #add 1 to number of plays, save progress since play is finished
+		bet		#take another bet
+	fi
+}
+
+displayvalues () {  # convert the random numbers to words on the screen
+	INDEX=1  #loop through slot number array
+	until [ $INDEX -gt 3 ]; do
+		case ${S[$INDEX]} in  #print based on number in array
+			0  )  echo -n "${ITEM[0]} - " ;;
+			1  )  echo -n "${ITEM[1]} - " ;;
+			2  )  echo -n "${ITEM[2]} - " ;;
+			3  )  echo -n "${ITEM[3]} - " ;;
+			4  )  echo -n "${ITEM[4]} - " ;;
+			5  )  echo -n "${ITEM[5]} - " ;;
+			6  )  echo -n "${ITEM[6]} - " ;;
+			7  )  echo -n "${ITEM[7]} - " ;;
+			8  )  echo -n "${ITEM[8]} - " ;;
+		esac
+		let "INDEX ++"
+	done
+	checkforwin  #see if the player won or lost
+}
+
+getslotvalues () {  #pick numbers that make up the game
+	S[1]=`picknumber 1 9`  #for all 3 numbers, pick number from 1 to 9
+	S[2]=`picknumber 1 9`
+	S[3]=`picknumber 1 9`
+	let "S[1] --"  #subtract 1 from each number, random picker does not allow picking 0
+	let "S[2] --"
+	let "S[3] --"
+	displayvalues  #display the words that go along with the numbers
+}
+
+lostitall () {  #player lost all cash, show game over message
+	L=`picknumber 1 5`  #pick losing comment sound, 5 choices
+	playsound $SOUNDDIR/lose/$L.wav
+	echo
+	echo "You lost all of your cash in $PLAYS plays."
+	echo "Press Y for another chance, or Q to quit."
+	rm $SAVEFILE  #remove save file, game is over
+	getkey y n q
+	case $REPLY in  #do action for q or n
+		"y"  )  newgame ;;
+		"q"|"n"  )  exit ;;
+	esac
+}
+
+newgame () {  #starts or continues a previous game
+	clear
+	cd $THEMEDIR 2>/dev/null
+	ls * | column
+	echo
+	echo
+	echo "Type in the name of the desired"
+	echo -n "slot machine theme:  "
+	read
+	if [ -z $REPLY ]; then
+		echo
+		echo "You must type in one of the above theme names."
+		sleep 2
+		newgame
+	elif [ ! -e $REPLY ]; then
+		echo
+		echo "There is no theme called "$REPLY"."
+		sleep 2
+		newgame
+	fi
+
+	INDEX=0
+	while read LINE; do
+		ITEM[$INDEX]="$LINE"
+		let "INDEX ++"
+	done < $REPLY
+	cd $BASEDIR
+
+
+	clear ; echo "Welcome to the $REPLY slot Machine!"
+	if [ -e $SAVEFILE ]; then   #if save file exists, load it
+		CASH=`head -n1 $SAVEFILE`  #save file has two linex, get top and bottom
+		PLAYS=`tail -n1 $SAVEFILE`
+		echo "You are continuing your last game with $CASH dollars."
+	else   #no save file, pick random amount of cash from 1 to 1000
+		CASH=`picknumber 1 1000` ; PLAYS=1
+		echo "You are starting a new game with $CASH dollars."
+	fi
+	echo "The following keys may be used:"
+	echo "    1-9 to bet 1 to 9 dollars"
+	echo "      0 to bet 10 dollars"
+	echo "      M to bet maximum"
+	echo "      Q to quit"
+	echo
+	echo
+	echo "Get matching symbols to win!"
+	echo
+	echo "PAYOFF CHART:" ; INDEX=1
+	until [ $INDEX -gt 8 ]; do  # print all symbols and winning amounts 
+		echo "${ITEM[$INDEX]} - ${WINAMT[$INDEX]} to `bcsend "${WINAMT[$INDEX]} * 10"`"
+		let "INDEX ++"
+	done
+	echo "${ITEM[0]} always loses!"
+
+	echo
+	echo "Place your bet:  "
+	bet
+}
+
+playsound () {  #play a wave file
+	aoss play -qV0 $*  #play files passed to function
+}
+
+save () {   #save cash and plays to a file
+	echo $CASH > $SAVEFILE
+	echo $PLAYS >> $SAVEFILE
+}
+
+newgame

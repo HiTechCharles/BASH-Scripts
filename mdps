@@ -1,0 +1,284 @@
+#!/bin/bash
+
+# Welcome to MDPS - Menu Driven Programming System
+# A system providing a menu driven interface to create, edit, compile, and run
+# programs.  Supported languages are c++ and shell scripts.  Each type of source code
+# has its own directory.  Compiled c++ programs reside in a bin directory inside
+# the c++ directory.
+
+. /multimedia/code/sh/bff       # extra functions
+SHDIR="/multimedia/code/sh"     # shell scripts
+CPPDIR="/multimedia/code/cpp"   #  C++ source
+
+compile () {
+	clear
+	echo
+	echo "                    COMPILE A C++ PROGRAM"
+	cd $CPPDIR
+	echo
+	echo
+	ls -1 *.cpp | cut -f1 -d'.' | sort | column
+	echo
+	echo
+	echo -n "Type in the name of the C++ program you want compiled:  "
+	read
+	FILENAME="`echo $REPLY | cut -f1 -d'.'`"   #remove extension from input.
+	if [ -z "$FILENAME" ]; then #no file name given 
+		menu  #back to main menu
+	elif [ ! -e "$FILENAME.cpp" ]; then
+		echo "Could not find the C++ program $FILENAME."
+		sleep 2
+		compile
+	fi
+
+	clear
+	rm bin/$FILENAME > /dev/null 2>&1
+	echo "Compiling $FILENAME..."
+	/usr/bin/time  -o /tmp/ct -f "%E" g++ "$FILENAME.cpp" -o "bin/$FILENAME"
+
+	echo
+	echo
+	if [ ! -e "bin/$FILENAME" ]; then 
+		echo "$FILENAME returned errors while compiling.  Type in the row &"
+		echo "column to continue editing, leave blank to return to main menu."
+		read
+		if [ -z $REPLY ]; then
+			menu
+		else
+			nano +$REPLY  "$CPPDIR/$FILENAME.cpp"
+			menu
+		fi
+	else
+		CT=`cat /tmp/ct`
+		echo "$FILENAME compiled successfully in $CT." 
+		yesno "Would you like to run it?"
+		case $REPLY in
+			"y"  )		clear
+						$CPPDIR/bin/$FILENAME
+						echo
+						pause "Press any key to return to menu..."
+						menu ;;
+			*    )      menu ;;
+		esac
+	fi
+}
+
+delete () {
+	clear
+	echo "                    DELETE A PROGRAM"
+	echo
+	echo
+	listallprograms "delete"
+	if [ -z "$FILENAME" ]; then #no file name given 
+		menu  #back to main menu
+	fi
+
+	if [ -e "$SHDIR/$FILENAME" ]; then
+		FILENAME="$SHDIR/$FILENAME"
+	elif [ -e "$CPPDIR/$FILENAME.cpp" ]; then
+		FILENAME="$CPPDIR/$FILENAME.cpp"
+	else
+		echo
+		echo "The file $FILENAME could not be found."
+		sleep 2
+		delete
+	fi
+
+	echo
+	echo "Are you sure you want to delete"
+	echo "$FILENAME?"
+	echo "Press Y or N"
+	read -sn1
+	if [ $REPLY = "y" ]; then
+		rm "$FILENAME"
+		echo
+		echo "The file has been deleted."
+		sleep 2
+	fi
+	menu
+}
+
+edit () {  #edit an existing program
+	clear
+	echo "                EDIT EXISTING PROGRAM"
+	echo
+	echo
+	listallprograms "edit"
+	if [ -z "$FILENAME" ]; then #no file name given
+		menu  #back to main menu
+	fi
+
+	if [ -e "$SHDIR/$FILENAME" ]; then
+		nano "$SHDIR/$FILENAME"
+		menu
+	elif [ -e "$CPPDIR/$FILENAME.cpp" ]; then
+		nano "$CPPDIR/$FILENAME.cpp"
+		menu
+	else
+		echo
+		echo "The file $FILENAME could not be found."
+		sleep 2
+		edit
+	fi
+}
+
+listallprograms () { # list all programs in the c++ and the shell script directories
+	cd $CPPDIR  #go into c++ directory
+	ls *.cpp | cut -f1 -d'.'> /tmp/programs  #list cpp files without extensions and store into a file
+	cd $SHDIR  #go to shell script directory
+
+	# I needed to list only the files in the shell script directory.  There's subdirectories
+	# there that I don't want listed.
+	find $SHDIR -maxdepth 1 -type f | cut -f5 -d/ >> /tmp/programs
+
+	sort /tmp/programs > /tmp/sortedprograms  #sort list of programs
+	cat /tmp/sortedprograms | column   #list all programs in columns
+	echo
+	echo "Type in the name of the file you wish"   #print prompt message 
+	echo -n "to $1, or leave blank to cancel:  "
+	read
+	FILENAME="`echo $REPLY | cut -f1 -d'.'`"   #remove extension from input.
+}
+
+menu () {  #displays possible choices
+	clear
+	echo "                Welcome to MDPS"
+	echo "        Menu Driven Programming System"
+	echo
+	echo
+	echo "Choose the desired action by letter:"
+	echo "    C - Create"
+	echo "    D - Delete"
+	echo "    E - Edit"
+	echo "    M - Compile"
+	echo "    R - Run"
+	echo
+	echo "    Q - Quit"
+
+	getkey c d e m r q  #only allow the listed keys to be hit, ignore others
+	case $REPLY in      #run function based on choice
+		"c"  )  new ;;
+		"d"  )  delete ;;
+		"e"  )  edit ;;
+		"m"  )  compile ;;
+		"r"  )  run ;;
+		"q"  )  exit ;;
+	esac
+}
+
+new () {  # start creating a new program
+	clear
+	echo "                CREATE A NEW PROGRAM"
+	echo
+	echo
+	echo "Which type of program would you like to make?"
+	echo "    C - C++"
+	echo "    S - Shell Script"
+	echo "    R - Return to main menu"
+	getkey c s r
+	case $REPLY in  #perform code based on key hit
+		"c"  )  LANGUAGE="C++"  #set name of language for later printing
+				cd "$CPPDIR" ;;  #switch to appropriate directory for the c++ progs
+		"s" )	LANGUAGE="Shell Script"
+				cd "$SHDIR" ;;
+		"r" ) menu ;;
+	esac
+
+	echo
+	echo -n "Pick a file name for the new program:  "
+	read
+	FILENAME="`echo $REPLY | cut -f1 -d'.'`"   #remove extension from input.
+	if [ "$LANGUAGE" = "C++" ]; then  # if c++ program being made, add cpp extension to c++ program name
+		FILENAME="$FILENAME.cpp"    # shell scripts do not get an extension
+	fi
+
+	if [ -z "$FILENAME" ]; then #no file name given 
+		echo
+		echo "You must provide a name for the new program."
+		sleep 2  #pause 2s to allow message to be read
+		new  #beginning of function
+	elif [ -e "$FILENAME" ]; then  #if file already exists, don't allow overwriting for safety
+		echo
+		echo "A program with the name $FILENAME already exists."
+		echo "Existing $LANGUAGE files are:"   #displays existing programs 
+		case $LANGUAGE in
+			"C++"  )  ls -1 *.cpp | column -c 60 ;;
+		"Shell Script"  )  	find /multimedia/code/sh -maxdepth 1 -type f | cut -f6 -d/ | column -c 60;
+	esac
+	new
+	fi
+
+	case $LANGUAGE in  #add beginning lines of program
+		"C++"  )	echo '#include "iostream"
+#include "fstream"
+#include "cmath"
+#include "ctime"
+#include "cstdlib"
+#include "cstring"
+#include "iomanip"
+
+/*Variables and arrays - all are global
+
+*/
+
+
+using namespace std;
+
+int main () {
+	
+	return 0;
+}' > "$FILENAME"  #writes all text between " " to the file
+	nano +17,5 "$FILENAME" ;;  #start editing just after cpp main function header
+	"Shell Script"  )		echo "#!/bin/bash
+. /multimedia/code/sh/bff
+" > "$FILENAME"
+	nano "$FILENAME"
+	chmod +x "$FILENAME" ;;  #shell scripts need to be made executable.
+	esac
+	menu
+}
+
+run () {   #run a completed program
+	clear
+	echo "            RUN A PROGRAM"
+	echo
+	echo
+	cd "$CPPDIR/bin"  #go into c++ directory
+	ls -1 > /tmp/programs  #list cpp files without extensions and store into a file
+	cd $SHDIR  #go to shell script directory
+	# I needed to list only the files in the shell script directory.  There's subdirectories
+	# there that I don't want listed.
+	find $SHDIR -maxdepth 1 -type f | cut -f6 -d/ >> /tmp/programs  #find list of files only, remove path info
+	sort /tmp/programs > /tmp/sortedprograms  #sort list of programs
+	cat /tmp/sortedprograms | column   #list all programs in columns
+	echo
+	echo "Type in the name of the program you want"   #print prompt message 
+	echo -n "to run, or leave blank to cancel:  "
+	read
+	FILENAME="$REPLY"   #remove extension from input.
+
+	if [ -z "$FILENAME" ]; then #no file name given
+		menu  #back to main menu
+	fi
+
+	if [ -e "$SHDIR/$FILENAME" ]; then
+		clear
+		$SHDIR/$FILENAME
+		echo
+		pause "Press any key to return to menu."
+		menu
+	elif [ -e "$CPPDIR/bin/$FILENAME" ]; then
+		clear
+		$CPPDIR/bin/$FILENAME
+		echo
+		pause "Press any key to return to menu."
+		menu
+	else
+		echo
+		echo "The file $FILENAME could not be found."
+		sleep 2
+		run
+	fi
+}
+
+menu

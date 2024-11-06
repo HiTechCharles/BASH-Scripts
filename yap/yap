@@ -1,0 +1,609 @@
+#!/bin/bash
+
+# YAP - Yahtzee Automation Program
+# by Charles Martin <HiTechCharles@gmail.com>
+# Project web site:  http://yap.sourceforge.net
+
+
+# Names of the scoring categories.  First one is 0, last one is 12
+CATNAME=( Ones Twos Threes Fours Fives Sixes "3 of a Kind" 
+	      "4 of a Kind" "Full House" "Small Straight" "Large Straight" 
+		  YAHTZEE Chance )
+
+# Number of points each category scores  (in words)
+# matches up with above array
+CATDESC=(	"all ones."				"all twos."			"all threes."
+			"all fours."			"all fives."		"all sixes."
+			"all dice."				"all dice."			"25 points."
+			"30 points."			"40 points."		"50 points."
+			"all dice." )
+
+# Minimum and maximum scores for each scoring area
+MINSCORE=( 1  2  3  4  5  6  5  5 0   0  0  0  5 )
+MAXSCORE=( 5 10 15 20 25 30 30 30 25 30 40 50 30 )
+
+BASEDIR=$HOME/.yap  # base directory for yap files that persist 
+RECOVERYDIR=~/.yap/recovery
+
+# -------------------- FUNCTIONS ------------------------------------------
+
+allscores () {  # show scores for all players, hi to lo
+	# if no scores, let the user know there is nothing to show.
+	if [ ${ROUNDS[1]} -eq 0 ]; then
+		echo
+		echo "There are no scores yet."
+		getinput
+	fi
+
+	echo
+	echo  "$1"  # print desired message above scores
+
+	rm /tmp/scores 2> /dev/null  # kill temp file before using
+	PLAYER=1  	# sets player number for loop
+	until [ $PLAYER -gt $NUMPLAYERS ]; do  # for each player, write score to file
+		echo "     ${TOTAL[$PLAYER]} for ${NAME[$PLAYER]}." >> /tmp/scores
+		let "PLAYER += 1"   # increment counter
+	done
+
+	# sort scores from file and display results
+	sort -rn < /tmp/scores
+	echo
+
+	if [ ${ROUNDS[$NUMPLAYERS]} -eq 13 ]; then
+		return
+	else
+		pause "Press a key to return to the game."
+		showremainingcategories  # back to category picker for current player
+	fi
+}
+
+changeturn () {  # changes the turn to the next player
+	let "TURN += 1"   # increment turn counter
+	if [ $TURN -gt $NUMPLAYERS ]; then  # if turn higher than # of players
+		TURN=1    # reset to 1
+	elif [ ${ROUNDS[$TURN]} -gt 13 ]; then
+		# if player has used all categories,
+		# skip that player and goto the next.
+		changeturn
+	fi
+
+	readscores  # read scores for current player into array
+}
+
+checkfortie () {   # checks for players having the same score
+	INDEX=1
+	until [ $INDEX -gt $NUMPLAYERS ]; do
+		if [ ${TOTAL[$INDEX]} -eq $WINSCORE ]; then
+			TPS="$TPS ${NAME[$INDEX]}  "
+			let "TP += 1"
+		fi
+		let "INDEX += 1"
+	done
+}
+
+clearfiles () {  # remove recovery files from previous game
+	rm -rf $RECOVERYDIR  2>/dev/null
+	mkdir $HOME/.yap $RECOVERYDIR 2>/dev/null
+}
+
+getinput () {   # get input for scoring area or function
+	read -sn1   # get one keypress
+		case $REPLY in  # set category index based on key hit or run function
+			1   		)   INDEX=0 ;;
+			2   		)   INDEX=1 ;;
+			3  			)   INDEX=2 ;;
+			4			)   INDEX=3 ;;
+			5   		)   INDEX=4 ;;
+			6  		  	)   INDEX=5 ;;
+			"t"|"T"		)   INDEX=6 ;;
+			"f"|"F"		)   INDEX=7 ;;
+			"h"|"H"		)   INDEX=8 ;;
+			"s"|"S"		)   INDEX=9 ;;
+			"l"|"L"		)   INDEX=10 ;;
+			"y"|"Y"		)   INDEX=11 ;;
+			"c"|"C"		)   INDEX=12 ;;
+			"a"|"A"     )   allscores ;;
+			"n"|"N"     )   onlycatnames ;;
+			"p"|"P"     )   scorecard ;;
+			"q"|"Q"		)   exit ;;
+			*			)   getinput ;;  #retry input for wrong keys
+		esac
+
+	# if category chosen that is already used, alert the user.
+	if [ ! -z ${SCORES[$INDEX]} ]; then
+		echo
+		echo "You have already scored ${SCORES[$INDEX]} for the ${CATNAME[$INDEX]} category."
+		getinput
+	else
+		# get the score for the chosen category
+		getscore $INDEX
+	fi
+}
+
+getnames () {
+	echo "Type the player names, separated by spaces:"
+	read # get a line of input
+	if [ -z "$REPLY" ]; then  # if no input, exit
+		echo "No names were given.  Exiting."
+		exit
+	fi
+
+	INDEX=1
+	for PLAYER in $REPLY ; do # for each part of the string, add to names array
+		NAME[$INDEX]=$PLAYER
+		BONUS[$INDEX]=0  # set upper section bonustatus to 0
+		ROUNDS[$INDEX]=0  # set number of rounds to 0 for the player
+		TOTAL[$INDEX]=0   # set total score to a number
+		let "INDEX += 1"  # increase counter
+	done
+	let "NUMPLAYERS = $INDEX - 1" ; TURN=0  # store number of players, set turn
+}
+
+getscore () {
+	# gets a number from the player.  For most categories, a 
+	# zero can be used or a variable number.  Four categories
+	# score a static number of points.  For these scoring areas,
+	# only zero or the full amount can be scored.
+	echo
+	echo "Scoring for ${CATNAME[$1]}."
+
+	# Decide whether to get a number or use zero/full score question
+	case $1 in
+		8|9|10|11  )  # zero or full points (full house, straights, yaht)
+		echo "You can either score 0 or ${CATDESC[$1]}"
+		echo -n "Press C to cancel, Z for 0, or F to score the full ${CATDESC[$1]}"
+		read -sn1
+		case $REPLY in  #get keystroke and examine input
+			# writes the correct number to the array.  Either zero or
+			# maximum score from MAXSCORE Array
+			"c"|"C"          )    showremainingcategories ;;
+			"z"|"Z"|"0"      )    SCORES[$1]=0 ;;
+			"f"|"F"|"s"|"S"  )    SCORES[$1]=${MAXSCORE[$1]}  ;;
+			*                )    getscore $1 ;;  #other input reruns function
+		esac
+		echo ;;
+	*   )  # for variable point categories
+		echo "You can score 0 or the total of ${CATDESC[$1]}"
+		echo "How many points for this category?  (Leave blank to cancel.)"
+		until [ ! -z $GOODVALUE ] ; do  #loop until valid number is used
+			read
+
+			if [ -z $REPLY ]; then  #if no reply, choose a new category
+				showremainingcategories
+			fi
+
+			if [ $REPLY -eq 0 ]; then  # zero the category
+				SCORES[$1]=0; GOODVALUE=1
+			elif [ $REPLY -lt ${MINSCORE[$1]} ]; then  #too low
+				echo "Score is too low.  It can be 0, as low as ${MINSCORE[$1]}, or as high as ${MAXSCORE[$1]}."
+			elif [ $REPLY -gt ${MAXSCORE[$1]} ]; then  # too high
+				echo "Score is too high.  It can be 0, as low as ${MINSCORE[$1]}, or as high as ${MAXSCORE[$1]}."
+			else
+				#add input to array
+				SCORES[$1]=$REPLY
+				GOODVALUE=1  # set switch so loop can exit
+			fi
+		done ;;
+	esac
+	unset GOODVALUE REPLY
+
+	# keep track of how many scoring areas used by each player
+	# when this number gets to 13, player is done, and final score message prints
+	let "ROUNDS[$TURN] += 1"  # add 1 to current value
+
+	# add new score to total
+	let "TOTAL[$TURN] = ${TOTAL[$TURN]} + ${SCORES[$1]}"
+	echo
+
+	uppersection  # determine if upper section bonus earned yet for the current player
+
+	# displays category used and the score obtained for this turn
+	echo -n "${NAME[$TURN]} scores ${SCORES[$1]} for ${CATNAME[$1]}"
+
+	# if this is the player's 13th round, print final score instead of just the name and total
+	if [ ${ROUNDS[$TURN]} -eq 13 ]; then
+		echo ".  Your final score is ${TOTAL[$TURN]} `wordchoice ${TOTAL[$TURN]} point points`."
+	else
+		echo ", and now has a total of ${TOTAL[$TURN]} `wordchoice ${TOTAL[$TURN]} point points`."
+	fi
+
+	writescores  # write scores to disk
+}
+
+isgameover () {
+	# if last player has done all 13 rounds, all players are done
+	# since turns go in same order
+	if [ ${ROUNDS[$NUMPLAYERS]} -eq 13 ]; then
+		# pause since last player's output is still on screen
+		pause "All players have finished.  Press a key to see final scores."
+
+		# print final scores and print the winner's name
+		clear
+		allscores "Here are the final scores:"
+
+		echo
+		WINNER=`sort -rn /tmp/scores | cut -f8 -d ' ' | head -n1`  #get winner's name from earlier temp file  
+		WINSCORE=`sort -rn /tmp/scores | cut -f6 -d ' ' | head -n1`  # get high score
+		checkfortie  # see if any players have the same score
+		if [ $TP -gt 1 ]; then  #if there are tied players, list them and exit
+			echo "The following players have finished the game in a tie:  $TPS"
+			clearfiles  #game over, get rid of recovery files
+			exit
+		else
+			echo "Today's winner is $WINNER, with a score of $WINSCORE points."  #print winner's name and score
+		fi
+
+		# display all time game winners.  each time a player wins, his/her
+		# name goes into a file and the number of games won by each person
+		# is figured based on how many times that player's name appears in
+		# the file.
+
+		clearfiles  # clear recovery files, game has ended
+		echo "for $WINNER" >> $BASEDIR/winners       # add name to winner list
+		GC=`wc -l $BASEDIR/winners | cut -f1 -d ' '` # total games completed
+
+		echo
+		echo
+		echo "Total games completed:  $GC"
+		echo "The following players have won in the past:"
+		sort < $BASEDIR/winners | uniq -ci | sort -nr  #print number of times each player won 
+		echo
+		echo
+		exit  # program ends
+	fi
+	return
+}
+
+nextplayer () {  # returns the next player in line
+	# add 1 to turn to make a new value.  (we don't want to
+	# change the turn)
+	let "NT = $TURN + 1"
+
+	# if value is more than # of players, return first player
+	if [ $NT -gt $NUMPLAYERS ]; then
+		echo ${NAME[1]}
+	else  #return next player
+		echo ${NAME[$NT]}
+	fi
+}
+
+loadrecoveryfiles () {  #load data from previous game
+	if [ -e $RECOVERYDIR/YS ]; then   # if 'ys' file in recovery directory, read files
+		echo
+		echo "Recovering from previous game"		
+		# read num players and turn first
+		while read LINE; do
+			NUMPLAYERS=$LINE
+			read TURN
+		done < $RECOVERYDIR/YS
+
+		INDEX=1  # load upper section scores
+		while read LINE; do
+			BONUS[$INDEX]=$LINE
+			let "INDEX += 1"
+		done < $RECOVERYDIR/BONUS
+
+		INDEX=1  #player names
+		while read LINE; do
+			NAME[$INDEX]=$LINE
+			let "INDEX += 1"
+		done < $RECOVERYDIR/NAME
+
+		INDEX=1  # rounds completed
+		while read LINE; do
+			ROUNDS[$INDEX]=$LINE
+			let "INDEX += 1"
+		done < $RECOVERYDIR/ROUNDS
+
+	INDEX=1  #total score
+		while read LINE; do
+			TOTAL[$INDEX]=$LINE
+			let "INDEX += 1"
+		done < $RECOVERYDIR/TOTAL
+
+		readscores  # read scores for current player
+	fi
+}
+
+onlycatnames () {  #display the categories remaining, all in one line
+		echo
+		echo "The following categories are available:"
+
+		INDEX=0
+		# if a slot is unset, print the category name
+		for LTR in 1 2 3 4 5 6 T F H S L Y C; do
+			if [ -z ${SCORES[$INDEX]} ] ; then  # if score for current category is null, print it since it's not used
+				echo -n "${CATNAME[$INDEX]}.  "
+			fi
+			let "INDEX += 1"
+		done
+		echo
+		getinput
+}
+
+pause () {  # pause between turns or screens of output.
+	# Displays a message if one is given, then waits for one key
+	echo -n "$1"   # cursor stays on message line while waiting
+	read -sn1  #get 1 keypress, don't care which one
+}
+
+readscores () {  # read scores from a player's file
+	# for each player, their scores are read from a file
+	# when it is that player's turn.  After the player
+	# scores for a category, updated scores are written.
+	# the SCORES array is used to hold the scores after
+	# they are read, and this is what changes while a
+	# player is scoring for a category.  At the end of the
+	# player's turn, the array is written to disk.
+
+	# It had to be done this way since each player needs their own list
+	# of values and you cannot use a variable to read from a specific
+	# array.  example:  PLAYERARRAY=player1
+	# cannot access array by using ${$PLAYERARRAY[1]}  A side benefit
+	# is easy data recovery since all the data is there.
+
+	# name of file where scores are written for the current player
+	# uses YS_ with the player's name to make a filename
+	PSF=$RECOVERYDIR/YS_${NAME[$TURN]}
+
+	# if file exists, read from it.  If not, it is assumed
+	# that it is that player's first turn, which unsets all
+	# 13 elements of the array
+	if [ -e "$PSF" ]; then
+		INDEX=0
+		# read from each line.  if a dash is read, that
+		# slot is to be unset.  Otherwise, store the
+		# number in the array.
+
+		until [ $INDEX -gt 12 ]; do
+			while read LINE; do
+				if [ $LINE = "-" ] ;then
+					unset SCORES[$INDEX]
+				else
+					SCORES[$INDEX]=$LINE
+				fi
+				let "INDEX += 1"
+			done < "$PSF"
+		done
+	else
+		unset SCORES
+	fi
+	showremainingcategories  # show available categories for the cur. player
+}
+
+scorecard () {  # show the player's entire score card, including section totals
+	# if player is on 1st roll, no categories used so card shouldn't show
+	if [ ${ROUNDS[$TURN]} -eq 0 ]; then
+		echo
+		echo "Your score card is empty."
+		getinput  # get input again, categories not reshown since they
+				  # are still on the screen.
+	fi
+
+	# clear screen, show all categories with associated score.  Put totals at bottom
+	clear
+	echo "Score card for ${NAME[$TURN]}, ${ROUNDS[$TURN]} of 13 rounds completed."
+	echo
+	INDEX=0; LINE=2 # array index an line number of first screen line to use
+					# line number is used in cursor movement.
+					# scores and categories are printed in separate columns
+	until [ $INDEX -gt 12 ]; do
+		tput cup $LINE 0 ; echo -n ${CATNAME[$INDEX]}:  # category name
+		tput cup $LINE 25; echo -n ${SCORES[$INDEX]}    # score
+		let "INDEX +=1"; let "LINE += 1" # add to counters
+
+		# if the first six categories have been printed, take a detour
+		# and print the upper section bonus.  	Should have made that
+		# a category in the array.
+		if [ $INDEX = 6 ]; then
+			tput cup $LINE 0; echo -n "Upper Section Bonus"
+			tput cup $LINE 25; echo -n "${BONUS[$TURN]}"
+			let "LINE += 2"  # skip 2 lines instead of 1 for separation
+		fi
+	done
+
+		INDEX=0; UST=0  # add first 6 scores to UST variable
+		until [ $INDEX -gt 5  ]; do  # for the first 6 categories,
+			if [ ! -z ${SCORES[$INDEX]} ]; then     #see if slot has a number
+				let "UST = $UST + ${SCORES[$INDEX]}"  # add it if so
+			fi
+			let "INDEX += 1"
+		done
+		let "UST = $UST + ${BONUS[$TURN]}"
+
+		LST=0  # add first remaining category scores to LST variable
+		until [ $INDEX -gt 12 ]; do  # for the first 6 categories,
+			if [ ! -z ${SCORES[$INDEX]} ]; then     #see if slot has a number
+				let "LST = $LST + ${SCORES[$INDEX]}"  # add it if so
+			fi
+			let "INDEX += 1"
+		done
+
+	echo
+	echo "------------------------------" ; let "LINE += 1"  # line at bottom
+	tput cup $LINE 0 ; echo -n "Upper Section Total"
+	tput cup $LINE 25 ; echo -n "$UST"
+	let "LINE += 1"
+
+	tput cup $LINE 0; echo -n "Lower Section Total"
+	tput cup $LINE 25; echo -n "$LST"
+	let "LINE += 1"
+
+	tput cup $LINE 0 ; echo -n "GRAND TOTAL:"  # put total at bootom in columns
+	tput cup $LINE 25; echo -n "${TOTAL[$TURN]}"
+	echo
+	echo
+	pause "Press a key to return to the game."  # allow for seeing the score
+								        		# card before getting input
+	showremainingcategories  # print categories again for current player
+}
+
+showorder () {  #show order of players before starting
+	clear
+	echo "Welcome to the Yahtzee Automation Program  (YAP)."
+	echo "The players will roll in the following order:"
+	echo
+	INDEX=1  #loop through all names, print them
+	until [ $INDEX -gt $NUMPLAYERS ]; do
+		echo "$INDEX - ${NAME[$INDEX]}"
+		let "INDEX += 1"
+	done
+	echo
+	pause "Hit a key to get started"
+}
+
+showremainingcategories () {  #show available categories for current player
+	# show remaining scoring categories based on which values in the array are
+	# unset.  A category can only be used once so we show only the unused
+	# choices.
+	clear
+
+	# show player's name, score, and remaining categories
+	echo "${NAME[$TURN]}'s turn."
+	STATLINE="${TOTAL[$TURN]} `wordchoice ${TOTAL[$TURN]} point points`, "
+	RLEFT=`expr 13 - ${ROUNDS[$TURN]}`
+	STATLINE="$STATLINE $RLEFT `wordchoice $RLEFT round rounds` to go."
+	echo "$STATLINE"
+	echo "Choose a category or press a function key:"
+
+		INDEX=0
+		# if a slot is unset, assign it a letter and print the category name
+		for LTR in 1 2 3 4 5 6 T F H S L Y C; do
+			if [ -z ${SCORES[$INDEX]} ] ; then
+				echo "     $LTR - ${CATNAME[$INDEX]}"
+			fi
+			let "INDEX += 1"
+		done
+
+		echo
+		echo "     A - Display all scores"
+		echo "     P - Show entire score card"
+		echo "     Q - Quit"
+		echo
+		getinput  # get keyboard input
+}
+
+uppersection () {
+	# see if player has earned upper section bonus.  This is true if 
+	# score for first six categories is 63 or more.
+		if [ ${BONUS[$TURN]} -eq 0 ]; then # if bonus not earned yet, check now
+		# add first 6 categories
+		INDEX=0; USB=0  # add first 6 scores to USB variable
+		until [ $INDEX -gt 5 ]; do  # for the first 6 categories,
+			if [ ! -z ${SCORES[$INDEX]} ]; then     #see if slot has a number
+				let "USB = $USB + ${SCORES[$INDEX]}"  # add it if so
+			fi
+			let "INDEX += 1"
+		done
+
+		# if total is 63 or more, add 35 to score and ensure it is not added
+		# multiple times by setting an element in the BONUS array.
+		if [ $USB -ge 63 ]; then
+			echo "You have earned the upper section bonus of 35 points."
+			# add to player's score once.
+			let "TOTAL[$TURN] = ${TOTAL[$TURN]} + 35"
+			BONUS[$TURN]=35  # set this player's BONUS status to non-zero
+		fi
+	fi
+}
+
+wordchoice () {  #get singular or plural form of a word by looking at a number
+	# print the beginning of the string you want before the printout
+	# should have the cursor stay on the current line by using -N
+	# with echo.  No spaces are printed by wordchoice, you must supply
+	# them whre needed in the previous string.
+
+	if [ $1 -eq 1 ]; then  # if value 1, singular
+		/bin/echo "$2" 
+	else
+		/bin/echo "$3"  #plural
+	fi
+}
+
+writescores () {  # write a player's scores to disk after a turn
+	PSF=$RECOVERYDIR/YS_${NAME[$TURN]}  # set file name to use.  YS_<name>
+	cd $RECOVERYDIR  # change to recovery dir to make deleting files easier
+	rm BONUS NAME ROUNDS TOTAL YS "YS_${NAME[$TURN]}"  2>/dev/null    # updated info will be written to these  
+	cd $OLDPWD  # go back to previous directory
+
+	INDEX=0
+	until [ $INDEX -gt 12 ]; do  # write the status of each scoring area
+		if [ -z ${SCORES[$INDEX]} ]; then
+			 # if slot is unset, write dash to file.  writing the actual
+			 # value and reading it later caused all unset slots to be set
+			 # with no number.  When scores are read, a dash will cause
+			 # that slot to unset.
+			echo "-" >> "$PSF" 
+		else  # write number of points in the category to the file
+			echo ${SCORES[$INDEX]} >> "$PSF"
+		fi
+
+		let "INDEX += 1"
+	done
+
+
+	INDEX=1
+	until [ $INDEX -gt $NUMPLAYERS ]; do
+		# write bonus, name, round, and total arrays to disk at same time
+		echo ${BONUS[$INDEX]} >> $RECOVERYDIR/BONUS
+		echo ${NAME[$INDEX]} >> $RECOVERYDIR/NAME
+		echo ${ROUNDS[$INDEX]} >> $RECOVERYDIR/ROUNDS
+		echo ${TOTAL[$INDEX]} >> $RECOVERYDIR/TOTAL
+		let "INDEX += 1"
+	done
+
+	# get value for next player's turn without changing it.
+	let "NT = $TURN + 1"
+	# if value is more than # of players, return first player
+	if [ $NT -gt $NUMPLAYERS ]; then
+		NT=1
+	fi
+
+	# write number of players and current turn to file
+	echo $NUMPLAYERS > $RECOVERYDIR/YS
+	echo $NT >> $RECOVERYDIR/YS
+
+	isgameover  # If all players done, game will end here.
+
+	# put a keypress pause between players so all output can be seen
+	# before screen clears for next turn.
+	pause  "Press any key for `nextplayer`'s turn."
+
+	changeturn  # change the turn to the next player
+}
+
+# --------------- END OF FUNCTIONS --------------------
+
+# check for recovery files.  if found, use them
+loadrecoveryfiles
+
+# get names of players from command line  If none, ask for them
+if [ -z $1 ]; then
+	getnames
+else
+	INDEX=1
+	for PLAYER in $* ; do # for each part of the command line, add to names array
+		NAME[$INDEX]=$PLAYER
+		BONUS[$INDEX]=0  # set upper section bonustatus to 0
+		ROUNDS[$INDEX]=0  # set number of rounds to 0 for the player
+		TOTAL[$INDEX]=0   # set total score to a number
+		let "INDEX += 1"  # increase counter
+	done
+	let "NUMPLAYERS = $INDEX - 1" ; TURN=0  # store number of players, set turn
+fi
+
+showorder
+clearfiles
+changeturn
+
+# flow of the program:
+# if no command line input, ask for player names.  otherwise, read from cmd line
+# after intro (showorder) screen, changeturn sets turn to first player (changeturn)
+# scores are read from file into memory (readscores)
+# show available categories (showremainingcategories) 
+# if player wants to view scores for all players, (allscores)
+# show sorted list and reshow categories
+# also, entire score card can be viewed. (scorecard) return to cat picker
+# when a category is chosen, get number of points to score (getscore)
+# display result of turn and write scores to disk  (writescores)
+# if game not over, (isgameover) goto next player's turn (changeturn)

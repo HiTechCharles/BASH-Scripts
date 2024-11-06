@@ -1,0 +1,92 @@
+#!/bin/bash
+
+. /home/oneeye/code/sh/bff
+TEAMNAME="Detroit Red Wings"
+TEAMFILE=detroit.txt
+TEAMFILE2=detroit-readable
+RESULT=/tmp/gt
+
+BASEDIR="`dirname $0`"
+cd $BASEDIR
+
+CheckArguments() {
+	case $1 in
+		"-v" ) ViewSchedule   ;;
+		"-s" ) SearchSchedule ;;
+		"-t" ) IsGameToday    ;;
+		""   ) Menu ;;
+		"-h" | "--help" ) Usage ;;
+	esac
+}
+
+Usage () {
+	echo "GameCheck - Get info about a single team hockey schedule"
+	echo "USAGE:  	gamecheck [option]"
+	echo "-s        search"
+	echo "-t        See if team plays today"
+	echo "-v        View entire schedule"
+}
+
+ViewSchedule () {
+	nano -v $TEAMFILE2
+}
+
+IsGameToday () {
+	CURDATE=`command date +"%B %-d"`
+	date +"Today is %A, %B %-d, %Y  %l:%m %p"
+
+	grep "$CURDATE" $TEAMFILE > $RESULT
+
+	if  [ $? -eq 0 ]; then
+		OPPONENT=`cat $RESULT | cut -f3 -d,`
+		PUCKDROPS=`cat $RESULT | cut -f5 -d,`
+		echo "The $TEAMNAME will face $OPPONENT, starting at $PUCKDROPS"
+	else
+		echo The $TEAMNAME are not playing.
+	fi
+}
+
+SearchSchedule () {
+	echo $TEAMNAME Schedule Search
+	echo
+	echo What would you like to search for?
+	read
+
+	grep  -i "$REPLY" $TEAMFILE2 > $RESULT
+	EXITCODE=$?
+
+	if  [ $EXITCODE -eq 0 ]; then
+		NUMLINES=`wc -l $RESULT | cut -f1 -d ' '`
+		echo >>$RESULT
+		echo $NUMLINES search results found >> $RESULT
+
+		less $RESULT
+	else	
+		echo The search produced no results.
+	fi
+}
+
+Menu () {
+	clear
+	echo GameCheck - $TEAMNAME edition!
+	echo by Charles Martin
+	echo
+	echo What would you like to do?
+	echo "    S - Search the schedule"
+	echo "    T - See if the team is playing today"
+	echo "    V - View entire schedule"
+	echo "    X - Exit"
+	echo
+
+	getkey s t v x
+
+	case $REPLY in
+		"s"  )  SearchSchedule  ;;
+		"t"  )  IsGameToday ;;
+		"v"  )  ViewSchedule ;;
+		"x"  )  exit ;;
+	esac
+
+}
+
+CheckArguments $*
